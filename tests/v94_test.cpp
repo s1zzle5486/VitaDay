@@ -1,0 +1,5 @@
+#include "../src/core.hpp"
+#include <cassert>
+#include <iostream>
+using namespace day;
+int main(){State s;s.countries={{"US","United States",2,true,true,"America/New_York"}};Location a;a.valid=true;a.country="US";a.city="New York";a.zone="America/New_York";Location b=a;b.city="Los Angeles";b.zone="America/Los_Angeles";assert(addCountryCity(s,0,a)&&addCountryCity(s,0,b));s.regions[1].clock=false;auto j=encode(s);auto restored=decode(j);assert(restored.regions.size()==2&&restored.regions[0].clock&&!restored.regions[1].clock&&restored.countries[0].holidays&&trackedCityCount(restored)==2);for(auto& place:j["regions"])place.erase("clock");auto legacy=decode(j);assert(legacy.regions[0].clock&&legacy.regions[1].clock);s.countries[0].clock=false;auto disabled=decode(encode(s));assert(!disabled.countries[0].clock&&!disabled.regions[1].clock);removeCountryCity(restored,0,0);assert(restored.regions.size()==1&&!restored.regions[0].clock&&restored.countries[0].clockCity=="Los Angeles"&&restored.countries[0].holidays);std::cout<<"Per-city clock persistence, legacy defaults, country preferences and primary-city removal: PASS\n";}

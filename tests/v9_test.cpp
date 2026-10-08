@@ -1,0 +1,5 @@
+#include "../src/core.hpp"
+#include <cassert>
+#include <iostream>
+using namespace day;
+int main(){State s;s.location.valid=true;s.location.automatic=false;s.location.city="Николаев";s.location.cityRu="Николаев";s.location.cityEn="Mykolaiv";s.location.country="UA";s.location.zone="Europe/Kyiv";s.location.lat=46.98;s.location.lon=31.99;s.location.geoname=700569;s.regions.push_back({s.location,{},0});auto id=locationKey(s.location);auto saved=encode(s);State restored=decode(saved);assert(restored.location.cityRu=="Николаев"&&restored.location.cityEn=="Mykolaiv"&&restored.location.geoname==700569);assert(restored.regions[0].location.cityEn=="Mykolaiv");restored.language=1;assert(locationKey(restored.location)==id);saved["location"].erase("cityRu");saved["location"].erase("cityEn");saved["location"].erase("geoname");auto old=decode(saved);assert(old.location.valid&&old.location.city=="Николаев"&&old.location.geoname==0);std::cout<<"Bilingual location persistence, stable identity and legacy saves: PASS\n";}
