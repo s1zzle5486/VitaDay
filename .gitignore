@@ -1,0 +1,11 @@
+build/
+work/
+*.vpk
+*.elf
+*.velf
+*.psp2dmp
+*.dSYM/
+__pycache__/
+*.pyc
+.DS_Store
+.env
