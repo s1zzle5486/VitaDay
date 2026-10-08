@@ -1,0 +1,13 @@
+{
+  "success": true,
+  "city": "Berlin",
+  "country_code": "DE",
+  "region_code": "BE",
+  "postal": "10115",
+  "latitude": 52.52,
+  "longitude": 13.405,
+  "timezone": {
+    "id": "Europe/Berlin",
+    "offset": 7200
+  }
+}
