@@ -1,0 +1,6 @@
+Bitmap CJK glyphs are derived from Noto Sans CJK SC Regular (Adobe).
+Generated on the build computer at 48 px by tools/build_cjk_bitmap.py.
+Vita uses compressed alpha masks, a Unicode index and its own renderer.
+No CJK font parsing or system-language selection is used at runtime.
+The original copyright and SIL Open Font License 1.1 are retained in
+FONT-CJK-LICENSE.

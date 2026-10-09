@@ -11,8 +11,9 @@ int main(){
     State s;s.location.valid=true;s.location.country="US";s.location.region="CA";s.countries={{"US","United States",2},{"DE","Germany",3}};
     assert(activeCountries(s).size()==2);s.followLocal=false;assert(activeCountries(s).size()==2);s.followLocal=true;s.location.country="CA";assert(activeCountries(s).size()==3);
     s.location.country="US";s.caches["US"]={2026,"CA",0,{{"2026-01-01","Новый год","US","New Year"}}};s.caches["DE"]={2026,"",0,{{"2026-01-01","Neujahr","DE","New Year"}}};
+    auto combined=holidayItems(s,{2026,1,1});assert(combined.size()==3&&combined.back().country=="INT");s.international=false;
     auto events=holidayItems(s,{2026,1,1});assert(events.size()==2&&events[0].country!=events[1].country);assert(countryColor(s,"US")==2&&countryColor(s,"DE")==3);
-    auto international=holidayItems(s,{2026,3,8});assert(international.size()==1&&international[0].country=="INT");s.international=false;assert(holidayItems(s,{2026,3,8}).empty());
+    s.international=true;auto international=holidayItems(s,{2026,3,8});assert(international.size()==1&&international[0].country=="INT");s.international=false;assert(holidayItems(s,{2026,3,8}).empty());
     s.location.region="NY";assert(holidayItems(s,{2026,1,1}).size()==1);s.countries.erase(s.countries.begin());s.followLocal=false;assert(holidayItems(s,{2026,1,1}).size()==1);
     s.weather=parseWeather(fixture("work/weather-week.json"));assert(s.weather.dates.size()==7&&s.weather.details.at("hourly").at("time").size()==168);
     assert(std::isfinite(number(s.weather.details["hourly"],"relative_humidity_2m",0)));assert(!std::isfinite(number(s.weather.details["hourly"],"missing",0)));

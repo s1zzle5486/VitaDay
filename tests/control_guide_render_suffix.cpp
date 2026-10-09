@@ -1,0 +1,12 @@
+static void finish(){auto until=std::chrono::steady_clock::now()+std::chrono::seconds(30);while(!controlGuideDone.load()){assert(std::chrono::steady_clock::now()<until);std::this_thread::sleep_for(std::chrono::milliseconds(1));}prepareControlGuide();}
+int main(){
+ gate=false;controlGuideOpen=true;state.language=0;prepareControlGuide();assert(controlGuideWorker>=0&&launches==1&&!controlGuideTexture);
+ for(int i=0;i<100;++i){prepareControlGuide();}assert(launches==1&&!controlGuideTexture);
+ controlGuideOpen=false;gate=true;finish();assert(!controlGuideTexture&&controlGuidePixels.capacity()==0);
+ for(int i=0;i<20;++i){controlGuideOpen=true;state.language=i;prepareControlGuide();finish();assert(controlGuideTexture&&!controlGuideFailed&&liveTextures==1);assert(controlGuideView.width==960&&controlGuideView.height==540);assert(drawControlGuideImage());assert(allocationType==1);std::vector<unsigned char> original;unsigned w=0,h=0;std::string error;assert(readControlGuide(guideFile(i),original,w,h,error));assert(memcmp(original.data(),controlGuideTexture->pixels.data(),w*2)==0);controlGuideOpen=false;prepareControlGuide();assert(liveTextures==0);}
+ gate=false;controlGuideOpen=true;state.language=0;prepareControlGuide();state.language=8;prepareControlGuide();gate=true;finish();assert(!controlGuideTexture&&controlGuideWorker>=0);finish();assert(controlGuideTexture&&controlGuideJobLanguage==8);controlGuideOpen=false;prepareControlGuide();
+ missingFile=true;state.language=1;controlGuideOpen=true;prepareControlGuide();finish();assert(controlGuideFailed&&!controlGuideTexture);int before=launches;prepareControlGuide();assert(launches==before);controlGuideOpen=false;prepareControlGuide();missingFile=false;
+ failTexture=true;controlGuideFailed=false;controlGuideOpen=true;prepareControlGuide();finish();assert(controlGuideFailed&&controlGuideError=="RGB565 texture allocation failed"&&allocationType==1);controlGuideOpen=false;prepareControlGuide();failTexture=false;
+ for(int failure:{1,2}){failThread=failure;controlGuideFailed=false;controlGuideOpen=true;prepareControlGuide();assert(controlGuideFailed&&controlGuideWorker<0);controlGuideOpen=false;prepareControlGuide();}assert(liveTextures==0);
+ std::cout<<"Actual guide worker: 20 prepared RGB565 resources loaded; responsive while blocked; close and language changes discard stale data; main-thread GPU only, uncached memory, allocation failure and row stride; errors do not retry each frame; memory released\n";
+}

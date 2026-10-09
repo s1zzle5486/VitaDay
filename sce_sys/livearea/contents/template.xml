@@ -1,5 +1,16 @@
-<?xml version="1.0" encoding="utf-8"?>
-<livearea style="a1" format-ver="01.00" content-rev="1">
-  <livearea-background><image>bg.png</image></livearea-background>
-  <gate><startup-image>startup.png</startup-image></gate>
+<?xml version='1.0' encoding='utf-8'?>
+<livearea style="a1" format-ver="01.00" content-rev="1020">
+  <livearea-background>
+    <image>bg.png</image>
+  </livearea-background>
+  <gate>
+    <startup-image>startup.png</startup-image>
+  </gate>
+  <frame id="frame1">
+    <liveitem>
+      <text valign="bottom" align="left" text-align="left" text-valign="bottom" margin-left="24" margin-bottom="24" line-space="0" ellipsis="on">
+        <str color="#55dcc3" size="22" bold="on" shadow="on">VitaDay 0.10.20</str>
+      </text>
+    </liveitem>
+  </frame>
 </livearea>

@@ -13,7 +13,9 @@ compiler = shlex.split(os.environ.get("CXX", "c++"))
 for source in sorted((root / "tests").glob("*_test.cpp")):
     name = source.stem
     command = compiler + ["-std=c++17", "-O1", "-g", "-fsanitize=address,undefined", str(source), "-o", str(out / name)]
-    if name == "png_test":
+    if name == "cjk_bitmap_test":
+        command += ["-lz"]
+    if name in ["png_test", "control_icons_test"]:
         command += [str(root / "src/lodepng.cpp"), "-DLODEPNG_NO_COMPILE_ENCODER"]
     if "network.hpp" in source.read_text():
         command += ["-lcurl"]

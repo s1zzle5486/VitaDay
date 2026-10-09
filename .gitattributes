@@ -5,4 +5,8 @@
 *.json text eol=lf
 *.png binary
 *.jpg binary
+*.jpeg binary
 *.ttf binary
+*.bin binary
+*.vgi binary
+*.rgba binary

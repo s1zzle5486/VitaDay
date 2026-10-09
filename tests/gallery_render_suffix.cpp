@@ -1,0 +1,9 @@
+static void drain(){auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);for(;;){prepareGallery();if(imageWorker<0)return;assert(std::chrono::steady_clock::now()<deadline);std::this_thread::yield();}}
+int main(){for(int i:{1,2,3,4,6,7,8,9,10,11}){std::vector<unsigned char> pixels;unsigned w=0,h=0;assert(readJpegPixels(assetRoot+"/background"+std::to_string(i)+".jpg",pixels,w,h));assert(w==240&&h==136&&pixels.size()==w*h*4);}std::vector<unsigned char> invalid;unsigned w=0,h=0;assert(!readJpegPixels(assetRoot+"/icons/sun-24.png",invalid,w,h));assert(!readJpegPixels(assetRoot+"/missing.jpg",invalid,w,h));preloadGallery();assert(thumbnails.size()==10);for(const auto& pair:thumbnails)assert(pair.second);prepareGallery();fileFocus=10;prepareGallery();assert(launched==0);
+ fileFocus=11;gate=false;prepareGallery();assert(imageWorker>=0&&!imageDone);unsigned before=launched;page=1;prepareGallery();assert(imageWorker>=0&&launched==before);gate=true;drain();auto first=thumbnails.find(backgroundFiles.front());assert(first!=thumbnails.end()&&first->second);
+ for(int i=11;i<11+int(backgroundFiles.size());i+=3){page=2;settingsTab=6;fileFocus=i;drain();assert(thumbnails.size()<=26);}
+ auto saved=thumbnails;before=launched;page=1;prepareGallery();page=2;settingsTab=1;prepareGallery();assert(thumbnails==saved&&launched==before);settingsTab=6;drain();assert(launched==before);
+ // A rescan invalidates user entries and rejects the result of an older job.
+ fileFocus=11;gate=false;galleryRescan=true;++galleryGeneration;prepareGallery();assert(imageWorker>=0);galleryRescan=true;++galleryGeneration;page=1;prepareGallery();gate=true;drain();assert(thumbnails.size()==10);
+ for(auto& pair:thumbnails)if(pair.second)vita2d_free_texture(pair.second);std::cout<<"Gallery: ten preloaded photos, responsive tabs during background decoding, main-thread-only textures, bounded retained cache and stale-job invalidation passed\n";
+}
