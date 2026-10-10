@@ -17,18 +17,35 @@ inline unsigned chartColor(int metric,double value) {
     static const std::vector<ChartStop> scales[]={
         {{-20,94,111,235},{0,66,172,240},{10,66,191,177},{20,232,193,79},{30,244,141,60},{40,232,83,94}},
         {{0,112,193,246},{2,55,157,239},{10,70,110,222},{25,115,83,203}},
-        {{0,130,211,213},{50,62,186,195},{100,43,128,201}},
-        {{0,83,194,177},{20,74,162,231},{50,140,118,233},{100,206,100,208}},
+        {{0,224,148,69},{30,71,184,159},{60,71,184,159},{80,79,151,222},{100,143,109,221}},
+        {{0,71,184,159},{20,79,151,222},{39,232,184,62},{62,239,136,58},{89,232,83,94},{118,167,96,204}},
         {{980,157,119,215},{1013,82,166,220},{1040,76,194,175}},
-        {{0,124,193,230},{50,140,170,199},{100,137,146,168}}
+        {{0,124,193,230},{50,140,170,199},{100,137,146,168}},
+        {{0,111,158,211},{300,241,190,70},{800,243,125,54}},
+        {{0,111,158,211},{300,241,190,70},{800,243,125,54}},
+        {{0,65,184,135},{60,65,184,135},{100,193,194,58},{120,241,174,48},{160,235,85,81},{180,166,104,206},{240,140,65,107}},
+        {{0,65,184,135},{5,65,184,135},{15,193,194,58},{50,241,174,48},{90,235,85,81},{140,166,104,206},{200,140,65,107}}
     };
-    const auto& stops=scales[std::clamp(metric,0,5)];
+    // Ozone/PM2.5 use EEA 2024 hourly concentration boundaries (micrograms/m3).
+    const auto& stops=scales[std::clamp(metric,0,9)];
     if(!std::isfinite(value))value=stops.front().value;
     size_t i=1;while(i<stops.size()-1&&value>stops[i].value)++i;
     const auto& a=stops[i-1];const auto& b=stops[i];
     double t=std::clamp((value-a.value)/(b.value-a.value),0.,1.);
     auto lerp=[&](unsigned x,unsigned y){return unsigned(std::lround(x+(double(y)-x)*t));};
     return lerp(a.r,b.r)|(lerp(a.g,b.g)<<8)|(lerp(a.b,b.b)<<16)|0xff000000u;
+}
+// Value text keeps the same hue as the chart, adjusted for the actual panel colour.
+inline double weatherLuminance(unsigned color){auto linear=[](unsigned v){double n=v/255.;return n<=.04045?n/12.92:std::pow((n+.055)/1.055,2.4);};return .2126*linear(color&255)+.7152*linear((color>>8)&255)+.0722*linear((color>>16)&255);}
+inline double weatherContrast(unsigned a,unsigned b){double x=weatherLuminance(a),y=weatherLuminance(b);return (std::max(x,y)+.05)/(std::min(x,y)+.05);}
+inline unsigned readableWeatherColor(unsigned color,unsigned background){
+ unsigned target=weatherLuminance(background)>.179?0:255;
+ for(int step=0;step<=100;++step){double t=step/100.;unsigned result=0xff000000u;for(int channel=0;channel<3;++channel){unsigned v=(color>>(8*channel))&255;result|=unsigned(std::lround(v+(double(target)-v)*t))<<(8*channel);}if(weatherContrast(result,background)>=4.5)return result;}
+ return target?0xffffffffu:0xff000000u;
+}
+inline unsigned uvValueColor(double value){
+ if(!std::isfinite(value)||value<0)return 0xffa89289u;
+ if(value<3)return 0xff87b841u;if(value<6)return 0xff3eb8e8u;if(value<8)return 0xff3a88efu;if(value<11)return 0xff5155ebu;return 0xffce68a6u;
 }
 struct WeatherChart {
     static constexpr int width=472,height=147,padding=3,plotHeight=140;
@@ -46,7 +63,7 @@ inline void chartRange(WeatherChart& c) {
     c.low=std::numeric_limits<double>::infinity();c.high=-c.low;
     for(double v:c.values)if(std::isfinite(v)){c.low=std::min(c.low,v);c.high=std::max(c.high,v);}
     if(!std::isfinite(c.low)){c.low=0;c.high=1;}
-    if(c.metric==1||c.metric==2||c.metric==3||c.metric==5)c.low=0;
+    if(c.metric==1||c.metric==2||c.metric==3||c.metric==5||c.metric>=6)c.low=0;
     if(c.metric==2||c.metric==5)c.high=100;
     if(c.high-c.low<1){if(c.metric==0||c.metric==4){c.low-=.5;c.high+=.5;}else c.high=c.low+1;}
 }

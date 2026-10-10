@@ -1,6 +1,7 @@
 #pragma once
 #include "core.hpp"
 #include "address.hpp"
+#include "air_quality.hpp"
 #include <curl/curl.h>
 #ifdef __vita__
 #include <psp2/kernel/threadmgr.h>
@@ -52,10 +53,16 @@ inline Json localizedSearch(const std::string& query,const std::string& cc,int l
   if(cache.size()>=24)cache.erase(cache.begin());cache[key]=out;try{std::ofstream f(file);f<<cache.dump();}catch(...){}
  }return out;
 }
-inline WeatherPlace fetchForecast(Location location,int language=1){
+inline WeatherPlace fetchForecast(Location location,int language=1,const Weather* previous=nullptr){
         translateLocation(location,language);
         char coords[120];snprintf(coords,sizeof(coords),"latitude=%.6f&longitude=%.6f",location.lat,location.lon);
-        Json j=request(std::string("https://api.open-meteo.com/v1/forecast?")+coords+"&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m,relative_humidity_2m&daily=temperature_2m_max,temperature_2m_min,weather_code,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,sunrise,sunset,uv_index_max&hourly=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation_probability,precipitation,rain,showers,weather_code,wind_speed_10m,wind_gusts_10m,pressure_msl,cloud_cover&forecast_days=11&timezone=auto");
+        Json j=request(std::string("https://api.open-meteo.com/v1/forecast?")+coords+"&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m,relative_humidity_2m&daily=temperature_2m_max,temperature_2m_min,weather_code,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,sunrise,sunset,uv_index_max&hourly=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation_probability,precipitation,rain,showers,weather_code,wind_speed_10m,wind_gusts_10m,pressure_msl,cloud_cover,direct_radiation,direct_radiation_instant&forecast_days=11&timezone=auto");
+        // Air quality is optional; its failure must not discard a successful weather forecast.
+        long long airUpdated=previous?previous->details.value("air_updated",0LL):0;
+        bool cached=previous&&airUpdated>0&&std::time(nullptr)-airUpdated<3600&&previous->details.value("utc_offset_seconds",0)==j.value("utc_offset_seconds",0);
+        if(cached){Json air=previous->details;mergeAirQuality(j,air);j["air_updated"]=airUpdated;}
+        else try{Json air=request(std::string("https://air-quality-api.open-meteo.com/v1/air-quality?")+coords+"&hourly=ozone,pm2_5&forecast_days=5&timezone=auto");if(mergeAirQuality(j,air))j["air_updated"]=std::time(nullptr);}
+        catch(...){if(previous&&mergeAirQuality(j,previous->details)){j["air_updated"]=airUpdated;j["air_cached"]=true;}}
         for(auto& values:j["daily"])if(values.is_array()&&values.size()>10)values.erase(values.begin()+10,values.end());WeatherPlace p;p.location=location;p.weather=parseWeather(j);p.location.offset=j.value("utc_offset_seconds",location.offset);p.location.zone=j.value("timezone",location.zone);p.updated=std::time(nullptr);return p;
 }
 struct Refresh { State state; Location origin;int year=2026;std::string query,message,report;bool any=false;Json cities=Json::array(); };
@@ -77,7 +84,7 @@ inline void refresh(Refresh& job) {
         if(old.lat!=s.location.lat||old.lon!=s.location.lon)s.weather=Weather{};
         job.any=true;
     }catch(const std::exception& e){job.message=std::string(t("Место: ","Location: "))+e.what();log(job.message);if(!job.query.empty()||(!s.location.valid&&activeCountries(s).empty()&&s.regions.empty()))return;}
-    if(s.location.valid)try {auto place=fetchForecast(s.location,s.language);s.weather=place.weather;s.location=place.location;s.updated=place.updated;job.any=true;log(s.location.city+t(": основная погода загружена",": main forecast loaded"));}catch(const std::exception& e){job.message+=std::string(t("Погода: ","Weather: "))+e.what();log(std::string(t("Основная погода: ","Main forecast: "))+e.what());}
+    if(s.location.valid)try {auto place=fetchForecast(s.location,s.language,&s.weather);s.weather=place.weather;s.location=place.location;s.updated=place.updated;job.any=true;log(s.location.city+t(": основная погода загружена",": main forecast loaded"));}catch(const std::exception& e){job.message+=std::string(t("Погода: ","Weather: "))+e.what();log(std::string(t("Основная погода: ","Main forecast: "))+e.what());}
     // Resolve selected countries to an explicit city before requesting forecasts.
     for(const auto& c:s.countries){
         if(!c.cityEnabled||c.zone.empty()||s.regions.size()>=16)continue;
@@ -98,7 +105,7 @@ inline void refresh(Refresh& job) {
             if(!found)throw std::runtime_error(t("Город не найден: ","City not found: ")+names.front());
         }catch(const std::exception& e){job.message+=(job.message.empty()?"":" / ");job.message+=c.code+": "+e.what();log(c.code+": "+e.what());}
     }
-    for(auto& place:s.regions){if(place.weather.valid&&std::time(nullptr)-place.updated<900){translateLocation(place.location,s.language);log(place.location.city+t(": сохранённая погода актуальна",": cached forecast is current"));continue;}try{auto origin=place.origin;bool clock=place.clock;place=fetchForecast(place.location,s.language);place.origin=origin;place.clock=clock;job.any=true;log(place.location.city+t(": погода загружена",": forecast loaded"));}catch(const std::exception& e){job.message+=(job.message.empty()?"":" / ");job.message+=place.location.city+": "+e.what();log(place.location.city+": "+e.what());}}
+    for(auto& place:s.regions){if(place.weather.valid&&std::time(nullptr)-place.updated<900){translateLocation(place.location,s.language);log(place.location.city+t(": сохранённая погода актуальна",": cached forecast is current"));continue;}try{auto origin=place.origin;bool clock=place.clock;place=fetchForecast(place.location,s.language,&place.weather);place.origin=origin;place.clock=clock;job.any=true;log(place.location.city+t(": погода загружена",": forecast loaded"));}catch(const std::exception& e){job.message+=(job.message.empty()?"":" / ");job.message+=place.location.city+": "+e.what();log(place.location.city+": "+e.what());}}
 
     if(s.catalog.empty())try{Json countries=request("https://date.nager.at/api/v3/AvailableCountries");for(const auto& c:countries){std::string code=c.at("countryCode");if(countryValid(code)&&s.catalog.size()<300)s.catalog.push_back({code,c.at("name"),1});}job.any=true;}catch(...){/* Offline country list remains available in the UI. */}
     auto active=activeCountries(s);
