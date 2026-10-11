@@ -2,15 +2,15 @@
 
 A native clock, weather, calendar and local MP3 dashboard for PlayStation Vita. Built with VitaSDK for homebrew-enabled PS Vita systems, including PS Vita 2000.
 
-[Download](https://github.com/s1zzle5486/VitaDay/releases) · [Русская инструкция](docs/README.ru.md) · [What's new in 0.10.31](docs/RELEASE-0.10.31.md)
+[Download](https://github.com/s1zzle5486/VitaDay/releases) · [Русская инструкция](docs/README.ru.md) · [What's new in 0.10.34](docs/RELEASE-0.10.34.md)
 
 ![VitaDay home screen — English desktop preview](docs/images/home.png)
 
 ## Install or update
 
-Download **VitaDay-0.10.31.vpk** from [Releases](https://github.com/s1zzle5486/VitaDay/releases), copy it to your Vita and install with VitaShell. Install over the previous version to keep your settings and calendar. The title ID remains `VDAY00001`; saved data lives in `ux0:data/VitaDay/`.
+Download **VitaDay-0.10.34.vpk** from [Releases](https://github.com/s1zzle5486/VitaDay/releases), copy it to your Vita and install with VitaShell. Install over the previous version to keep your settings and calendar. The title ID remains `VDAY00001`; saved data lives in `ux0:data/VitaDay/`.
 
-Version 0.10.31 passes a native VitaSDK build and offline desktop checks. This exact build has not yet been tested on physical Vita hardware. Screenshots in this repository are desktop renders of the application UI with sample data.
+Version 0.10.34 passes a native VitaSDK build and offline desktop checks. Startup was measured on a physical Vita: 3.22 seconds from application entry to the first frame, with approximately 5 seconds from tapping Start. The reported system-wide app-launch issue after closing VitaDay still needs confirmation with this update. Screenshots in this repository are desktop renders of the application UI with sample data.
 
 ## Features
 
@@ -98,3 +98,7 @@ Location: [ipwho.is](https://ipwhois.io/documentation). Weather and city search:
 Data coverage and service availability vary by country. Weather is a model forecast. Personal events are stored on the Vita; no account or cloud synchronization is used.
 
 Third-party notices and licenses are included in `assets/`, including photographs, Lucide icons, fonts, Unicode CLDR/IANA data, nlohmann/json, LodePNG, dr_mp3 (see src/dr_mp3.h) and holiday data. See [photograph notices](assets/BACKGROUNDS-LICENSE.md), [CJK font notice](assets/FONT-CJK-NOTICE.txt), [holiday data notice](assets/HOLIDAY-DATA-NOTICE.md) and [Russian documentation](docs/README.ru.md).
+
+## Thanks
+
+Thanks to [Whale-Circus](https://github.com/Whale-Circus) for contributing Simplified Chinese translation corrections and reporting the app-launch problem after closing VitaDay.
