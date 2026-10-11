@@ -18,6 +18,7 @@
 #include "jpeg_pixels.hpp"
 #include "color_picker.hpp"
 #include "music_vita.hpp"
+#include "lifecycle_vita.hpp"
 #include "music_art.hpp"
 #include "music_library.hpp"
 #include <psp2/io/dirent.h>
@@ -45,6 +46,17 @@ extern "C" { unsigned int _newlib_heap_size_user=96*1024*1024; }
 
 using namespace day;
 static const std::string dir="ux0:data/VitaDay";
+static std::vector<std::pair<std::string,uint64_t>> startupTimes;
+static void startupMark(const char* stage){startupTimes.emplace_back(stage,sceKernelGetProcessTimeWide());}
+static void saveStartupTimes(){
+    if(startupTimes.empty())return;
+    std::ofstream out(dir+"/startup-status.txt",std::ios::trunc);
+    out<<"VitaDay 0.10.34 startup (milliseconds)\n";
+    auto begin=startupTimes.front().second,previous=begin;
+    for(const auto& item:startupTimes){out<<item.first<<": total="<<(item.second-begin)/1000<<" stage="<<(item.second-previous)/1000<<"\n";previous=item.second;}
+    startupTimes.clear();
+}
+
 static State state;static int vitaLanguage=1;
 static vita2d_font* font;
 static std::map<int,vita2d_font*> fonts;static std::vector<unsigned char> latinBytes;
@@ -123,7 +135,7 @@ static std::map<int,vita2d_texture*> circleTextures;
 static vita2d_texture* circleTexture(float radius){int key=int(std::round(radius*4));auto it=circleTextures.find(key);if(it!=circleTextures.end())return it->second;float r=key/4.f;int side=int(std::ceil(r*2))+2;auto pixels=circleMask(r);auto* tex=vita2d_create_empty_texture(side,side);if(tex){auto* data=(unsigned char*)vita2d_texture_get_datap(tex);int stride=vita2d_texture_get_stride(tex);for(int y=0;y<side;++y)memcpy(data+y*stride,pixels.data()+y*side*4,side*4);vita2d_texture_set_filters(tex,SCE_GXM_TEXTURE_FILTER_LINEAR,SCE_GXM_TEXTURE_FILTER_LINEAR);}circleTextures[key]=tex;return tex;}
 static void drawSmoothCircle(float x,float y,float radius,unsigned color){if(radius<=0)return;auto* tex=circleTexture(radius);if(!tex)return;float r=std::round(radius*4)/4.f,scale=radius/r,side=vita2d_texture_get_width(tex)*scale;vita2d_draw_texture_tint_scale(tex,x-side/2,y-side/2,scale,scale,color);}
 
-static void prepareUiShapes(){for(float r:{2.f,2.5f,3.f,4.f,5.f,6.f,16.f,21.f,24.f,26.f,88.f,90.f,136.f,138.f})circleTexture(r);auto pixels=roundedPanelMask();roundedTexture=vita2d_create_empty_texture(32,32);if(roundedTexture){auto* data=(unsigned char*)vita2d_texture_get_datap(roundedTexture);int stride=vita2d_texture_get_stride(roundedTexture);for(int y=0;y<32;++y)memcpy(data+y*stride,pixels.data()+y*32*4,32*4);}
+static void prepareUiShapes(){auto pixels=roundedPanelMask();roundedTexture=vita2d_create_empty_texture(32,32);if(roundedTexture){auto* data=(unsigned char*)vita2d_texture_get_datap(roundedTexture);int stride=vita2d_texture_get_stride(roundedTexture);for(int y=0;y<32;++y)memcpy(data+y*stride,pixels.data()+y*32*4,32*4);}
  for(const auto* name:{"cross","circle","square","triangle","dpad","left-stick","right-stick","shoulders","start","select"}){auto* tex=loadPngTexture((std::string("app0:assets/controls/")+name+".png").c_str());if(tex){vita2d_texture_set_filters(tex,SCE_GXM_TEXTURE_FILTER_LINEAR,SCE_GXM_TEXTURE_FILTER_LINEAR);controlTextures[name]=tex;}}
 }
 static void drawRoundedCard(int x,int y,int w,int h,unsigned color){if(!roundedTexture||w<16||h<16){vita2d_draw_rectangle(x,y,w,h,color);return;}
@@ -181,6 +193,7 @@ static int imageEntry(SceSize,void*){
     }catch(...){imageJobPixels.clear();}imageDone.store(true,std::memory_order_release);return 0;
 }
 static void prepareGallery(){
+    static bool builtInsLoaded=false;if(!builtInsLoaded&&page==2&&(settingsTab==0||settingsTab==6)&&!closing){preloadGallery();builtInsLoaded=true;}
     std::vector<std::string> needed;
     if(page==2&&settingsTab==6){fileFocus=std::clamp(fileFocus,0,std::max(0,10+(int)backgroundFiles.size()));if(fileFocus<fileScroll)fileScroll=fileFocus/3*3;if(fileFocus>=fileScroll+6)fileScroll=(fileFocus/3-1)*3;for(int i=fileScroll;i<fileScroll+6&&i<11+(int)backgroundFiles.size();++i){auto path=galleryPath(i);if(!path.empty())needed.push_back(path);}}
     else if(page==2&&settingsTab==0){auto path=appearancePath(previewLook());if(!path.empty())needed.push_back(path);}
@@ -229,7 +242,7 @@ static SceUID worker=-1;
 static std::atomic<bool> done{false};
 static Refresh job;
 static void* netMemory=nullptr;
-static bool netReady=false,wifiConnected=false,offlinePopup=false;
+static bool netReady=false,netInitialized=false,netCtlInitialized=false,curlInitialized=false,wifiConnected=false,offlinePopup=false;
 static uint16_t imeInput[256]{},imeInitial[256]{},imeTitle[64]{};
 static int imeKind=0;
 struct Palette {unsigned bg,card,ink,muted,accent,line;};
@@ -330,6 +343,7 @@ static int networkEntry(SceSize,void*){refresh(job);done.store(true,std::memory_
 static bool networkLoading(){return worker>=0||refreshPending;}
 static bool checkConnection(){int status=SCE_NETCTL_STATE_DISCONNECTED;return netReady&&sceNetCtlInetGetState(&status)>=0&&status==SCE_NETCTL_STATE_CONNECTED;}
 static void updateNetwork(bool forceIP=false,const std::string& query=""){
+    if(closing)return;
     if(worker>=0||imeKind){if(!query.empty())pendingCityQuery=query;else refreshPending=true;return;}refreshPending=false;if(!checkConnection()){wifiConnected=false;notice.clear();return;}wifiConnected=true;
     for(auto& c:state.countries)if(c.cityEnabled&&c.zone.empty()&&timeZones.contains("countries")&&timeZones["countries"].contains(c.code)&&!timeZones["countries"][c.code].empty())c.zone=defaultZone(c.code,timeZones["countries"][c.code].get<std::vector<std::string>>());
     job=Refresh{};job.state=state;job.origin=state.location;job.year=selected.y;job.query=query;
@@ -342,6 +356,7 @@ static void updateNetwork(bool forceIP=false,const std::string& query=""){
 static void collectNetwork(){
     if(worker<0||!done.load(std::memory_order_acquire))return;
     sceKernelWaitThreadEnd(worker,nullptr,nullptr);sceKernelDeleteThread(worker);worker=-1;
+    if(closing)return;
     if(!job.query.empty()){cityResults=job.cities;cityFocus=cityResults.empty()?-1:0;cityScroll=0;notice=job.cities.empty()?job.message:"";}
     bool followToday=page==0&&key(selected)==key(today());
     if(job.query.empty()){state.networkReport=job.report;{std::ofstream f(std::string(dir)+"/network-last.txt");f<<state.networkReport;}if(job.any){mergeRefresh(state,job);notice=job.message==localized(job.state.language,"Обновлено","Updated")?"":job.message;persist();if(followToday)selected=today();}else {notice=job.message;persist();}}
@@ -383,17 +398,28 @@ static void digitalDigit(int x,int y,int number,float scale){
 }
 #include "ui.hpp"
 int main(){
-    sceIoMkdir("ux0:data",0777);sceIoMkdir(dir.c_str(),0777);sceIoMkdir((dir+"/backgrounds").c_str(),0777);sceIoMkdir((dir+"/music").c_str(),0777);state=load(dir);loadLanguages("app0:assets/locales");try{std::ifstream f("app0:assets/zones.json");f>>timeZones;}catch(...){}try{std::ifstream f("app0:assets/country-names-ru.json");f>>localizedCountries;}catch(...){}try{std::ifstream f("app0:assets/country-names-en.json");f>>englishCountries;}catch(...){}try{std::ifstream f("app0:assets/city-names.json");f>>cityNames;}catch(...){}try{if(state.catalog.empty()){std::ifstream f("app0:assets/countries.json");Json j;f>>j;for(const auto& c:j)state.catalog.push_back({c.at("countryCode"),c.at("name"),1});}}catch(...){}
+    startupMark("entry");
+    sceIoMkdir("ux0:data",0777);sceIoMkdir(dir.c_str(),0777);sceIoMkdir((dir+"/backgrounds").c_str(),0777);sceIoMkdir((dir+"/music").c_str(),0777);state=load(dir);try{std::ifstream f("app0:assets/zones.json");f>>timeZones;}catch(...){}try{std::ifstream f("app0:assets/country-names-ru.json");f>>localizedCountries;}catch(...){}try{std::ifstream f("app0:assets/country-names-en.json");f>>englishCountries;}catch(...){}try{std::ifstream f("app0:assets/city-names.json");f>>cityNames;}catch(...){}try{if(state.catalog.empty()){std::ifstream f("app0:assets/countries.json");Json j;f>>j;for(const auto& c:j)state.catalog.push_back({c.at("countryCode"),c.at("name"),1});}}catch(...){}
     if(timeZones.contains("countries")&&pruneLegacyDefaults(state,timeZones["countries"]))persist();
-    SceAppUtilInitParam init{};SceAppUtilBootParam boot{};sceAppUtilInit(&init,&boot);SceCommonDialogConfigParam config{};int enterButton=SCE_SYSTEM_PARAM_ENTER_BUTTON_CROSS;sceAppUtilSystemParamGetInt(SCE_SYSTEM_PARAM_ID_ENTER_BUTTON,&enterButton);circleEnter=enterButton==SCE_SYSTEM_PARAM_ENTER_BUTTON_CIRCLE;config.enterButtonAssign=(SceSystemParamEnterButtonAssign)enterButton;int systemLanguage=SCE_SYSTEM_PARAM_LANG_ENGLISH_US;sceAppUtilSystemParamGetInt(SCE_SYSTEM_PARAM_ID_LANG,&systemLanguage);vitaLanguage=systemLanguageId(systemLanguage);applySystemLanguage(state,systemLanguage);config.language=(SceSystemParamLang)systemLanguage;sceCommonDialogSetConfigParam(&config);
+    startupMark("state and reference data");
+    SceAppUtilInitParam init{};SceAppUtilBootParam boot{};sceAppUtilInit(&init,&boot);SceCommonDialogConfigParam config{};int enterButton=SCE_SYSTEM_PARAM_ENTER_BUTTON_CROSS;sceAppUtilSystemParamGetInt(SCE_SYSTEM_PARAM_ID_ENTER_BUTTON,&enterButton);circleEnter=enterButton==SCE_SYSTEM_PARAM_ENTER_BUTTON_CIRCLE;config.enterButtonAssign=(SceSystemParamEnterButtonAssign)enterButton;int systemLanguage=SCE_SYSTEM_PARAM_LANG_ENGLISH_US;sceAppUtilSystemParamGetInt(SCE_SYSTEM_PARAM_ID_LANG,&systemLanguage);vitaLanguage=systemLanguageId(systemLanguage);applySystemLanguage(state,systemLanguage);configureLanguages("app0:assets/locales",state.language);config.language=(SceSystemParamLang)systemLanguage;sceCommonDialogSetConfigParam(&config);
     sceSysmoduleLoadModule(SCE_SYSMODULE_IME);sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);sceTouchSetSamplingState(SCE_TOUCH_PORT_FRONT,SCE_TOUCH_SAMPLING_STATE_START);
+    startupMark("system services and active locale");
     vita2d_init();font=readFont("app0:assets/font.ttf",latinBytes)?vita2d_load_font_mem(latinBytes.data(),latinBytes.size()):nullptr;if(!font){vita2d_fini();sceKernelExitProcess(1);return 1;}
+    startupMark("renderer and main font");
     prepareFonts();loadCjk();for(const auto& language:languages())for(const auto& run:textRuns(language.native))if(run.cjk)for(size_t i=0;i<run.value.size();){auto cp=textCodepoint(run.value,i);cjkEntry(18,cp.value);i+=cp.bytes;}
+    startupMark("CJK bitmap and language names");
     sceSysmoduleLoadModule(SCE_SYSMODULE_NET);netMemory=malloc(4*1024*1024);SceNetInitParam np{};np.memory=netMemory;np.size=4*1024*1024;
-    if(netMemory&&sceNetInit(&np)>=0){if(sceNetCtlInit()>=0&&curl_global_init(CURL_GLOBAL_DEFAULT)==CURLE_OK)netReady=true;}
-    musicLibrary.load(dir+"/playlists.json");music.start();loadUiIcons();loadMusicIcons();prepareUiShapes();preloadGallery();for(int size=11;size<=32;++size)fontFor(size);selected=today();wifiConnected=checkConnection();offlinePopup=!wifiConnected;updateNetwork();NavigationRepeat repeatInput,leftRepeat,rightRepeat;GraphStickMotion graphStick;bool heldTouch=false,dragging=false,continuousTouch=false;int touchX=0,touchY=0,lastTouchY=0;uint64_t nextRefresh=sceKernelGetProcessTimeWide()+900000000ULL,nextPowerTick=0,nextConnectionCheck=0,lastTouchStamp=0,lastFrame=sceKernelGetProcessTimeWide();
+    if(netMemory&&sceNetInit(&np)>=0){netInitialized=true;if(sceNetCtlInit()>=0){netCtlInitialized=true;curlInitialized=curl_global_init(CURL_GLOBAL_DEFAULT)==CURLE_OK;netReady=curlInitialized;}}
+    startupMark("network initialization");
+    musicLibrary.load(dir+"/playlists.json");music.start();startupMark("playlists and music worker");loadUiIcons();loadMusicIcons();startupMark("UI icons");prepareUiShapes();startupMark("panel mask");selected=today();wifiConnected=checkConnection();offlinePopup=!wifiConnected;updateNetwork();NavigationRepeat repeatInput,leftRepeat,rightRepeat;GraphStickMotion graphStick;bool heldTouch=false,dragging=false,continuousTouch=false;int touchX=0,touchY=0,lastTouchY=0;uint64_t nextRefresh=sceKernelGetProcessTimeWide()+900000000ULL,nextPowerTick=0,nextConnectionCheck=0,lastTouchStamp=0,lastFrame=sceKernelGetProcessTimeWide();
+    startupMark("cached view and network worker");
+    bool startupReported=false;
     uint64_t nextMusicSnapshot=0;
     while(true){
+        // LiveArea close must take the same resource-release path as in-app exit.
+        if(systemRequestedQuit())closing=true;
+        if(closing){static bool logged=false;if(!logged){std::ofstream(dir+"/shutdown-status.txt",std::ios::trunc)<<"0.10.34: shutdown requested\n";logged=true;}networkCancelled.store(true);music.requestStop();refreshPending=false;pendingCityQuery.clear();}
         if(sceKernelGetProcessTimeWide()>=nextMusicSnapshot){musicStatus=music.snapshot();static int lastDeletedRevision=0;if(musicStatus.deleteRevision!=lastDeletedRevision){lastDeletedRevision=musicStatus.deleteRevision;musicLibrary.forget(musicStatus.deletedPath);persistMusicLibrary();}nextMusicSnapshot=sceKernelGetProcessTimeWide()+100000ULL;}
         if((musicStatus.playing||state.keepScreen)&&sceKernelGetProcessTimeWide()>=nextPowerTick){sceKernelPowerTick(musicStatus.playing&&!state.keepScreen?SCE_KERNEL_POWER_TICK_DISABLE_AUTO_SUSPEND:SCE_KERNEL_POWER_TICK_DEFAULT);nextPowerTick=sceKernelGetProcessTimeWide()+1000000ULL;}
         if(sceKernelGetProcessTimeWide()>=nextConnectionCheck){bool was=wifiConnected;wifiConnected=checkConnection();nextConnectionCheck=sceKernelGetProcessTimeWide()+2000000ULL;if(wifiConnected&&!was){offlinePopup=false;notice.clear();updateNetwork();}else if(!wifiConnected&&was)notice.clear();}
@@ -416,8 +442,12 @@ int main(){
         if(!musicOpen&&monthPicker)drawMonthPicker();if(offlinePopup)drawOfflineNotice();}
         if(!controlGuideOpen){if(musicOpen){if(state.hints)drawControlHints();}else if(!wifiConnected)fit(20,536,14,t("Офлайн: сохранённый прогноз. Обновление и поиск недоступны.","Offline: saved forecast. Updates and search unavailable."),920,p.accent);else if(!notice.empty())fit(20,536,14,displayNotice(),920,p.muted);else if(state.hints)drawControlHints();}else drawControlGuide();
         vita2d_end_drawing();if(imeKind)vita2d_common_dialog_update();vita2d_swap_buffers();
+        if(!startupReported){startupMark("first frame presented");saveStartupTimes();startupReported=true;}
     }
-    music.stop();
+    std::ofstream(dir+"/shutdown-status.txt",std::ios::app)<<"network worker stopped\n";
+    networkCancelled.store(true);music.stop();
+    std::ofstream(dir+"/shutdown-status.txt",std::ios::app)<<"music worker and BGM port released\n";
+    if(imeKind){sceImeDialogAbort();sceImeDialogTerm();imeKind=0;}
     if(controlGuideWorker>=0){sceKernelWaitThreadEnd(controlGuideWorker,nullptr,nullptr);sceKernelDeleteThread(controlGuideWorker);}releaseControlGuideTexture();
-    if(imageWorker>=0){sceKernelWaitThreadEnd(imageWorker,nullptr,nullptr);sceKernelDeleteThread(imageWorker);imageWorker=-1;}if(musicArtWorker>=0){sceKernelWaitThreadEnd(musicArtWorker,nullptr,nullptr);sceKernelDeleteThread(musicArtWorker);}persist();if(netReady){curl_global_cleanup();sceNetCtlTerm();sceNetTerm();}free(netMemory);vita2d_wait_rendering_done();if(musicArtTexture)vita2d_free_texture(musicArtTexture);if(roundedTexture)vita2d_free_texture(roundedTexture);for(auto& entry:circleTextures)if(entry.second)vita2d_free_texture(entry.second);for(auto& entry:controlTextures)vita2d_free_texture(entry.second);if(pickerTexture)vita2d_free_texture(pickerTexture);if(weatherChartTexture)vita2d_free_texture(weatherChartTexture);for(const auto& entry:fonts)vita2d_free_font(entry.second);clearCjkAtlas();cjkFace.close();vita2d_free_font(font);for(auto& v:backgroundCache)if(v.second)vita2d_free_texture(v.second);for(auto& v:uiTextures)vita2d_free_texture(v.second);for(auto& v:thumbnails)if(v.second)vita2d_free_texture(v.second);vita2d_fini();sceAppUtilShutdown();sceKernelExitProcess(0);return 0;
+    if(imageWorker>=0){sceKernelWaitThreadEnd(imageWorker,nullptr,nullptr);sceKernelDeleteThread(imageWorker);imageWorker=-1;}if(musicArtWorker>=0){sceKernelWaitThreadEnd(musicArtWorker,nullptr,nullptr);sceKernelDeleteThread(musicArtWorker);}persist();if(curlInitialized)curl_global_cleanup();if(netCtlInitialized)sceNetCtlTerm();if(netInitialized)sceNetTerm();free(netMemory);vita2d_wait_rendering_done();if(musicArtTexture)vita2d_free_texture(musicArtTexture);if(roundedTexture)vita2d_free_texture(roundedTexture);for(auto& entry:circleTextures)if(entry.second)vita2d_free_texture(entry.second);for(auto& entry:controlTextures)vita2d_free_texture(entry.second);if(pickerTexture)vita2d_free_texture(pickerTexture);if(weatherChartTexture)vita2d_free_texture(weatherChartTexture);for(const auto& entry:fonts)vita2d_free_font(entry.second);clearCjkAtlas();cjkFace.close();vita2d_free_font(font);for(auto& v:backgroundCache)if(v.second)vita2d_free_texture(v.second);for(auto& v:uiTextures)vita2d_free_texture(v.second);for(auto& v:thumbnails)if(v.second)vita2d_free_texture(v.second);vita2d_fini();sceSysmoduleUnloadModule(SCE_SYSMODULE_IME);sceSysmoduleUnloadModule(SCE_SYSMODULE_NET);sceAppUtilShutdown();std::ofstream(dir+"/shutdown-status.txt",std::ios::app)<<"cleanup complete; exiting process\n";sceKernelExitProcess(0);return 0;
 }

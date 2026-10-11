@@ -63,7 +63,8 @@ class VitaMusic {
     }
 public:
     bool start(){mutex=sceKernelCreateMutex("VitaDayMusicLock",0,0,nullptr);if(mutex<0){shared.error=2;shared.loading=false;return false;}worker=sceKernelCreateThread("VitaDayMusic",entry,0x10000100,192*1024,0,0,nullptr);auto self=this;if(worker>=0&&sceKernelStartThread(worker,sizeof(self),&self)>=0)return true;if(worker>=0)sceKernelDeleteThread(worker);worker=-1;sceKernelDeleteMutex(mutex);mutex=-1;shared.loading=false;shared.error=2;return false;}
-    void stop(){quit=true;if(worker>=0){sceKernelWaitThreadEnd(worker,nullptr,nullptr);sceKernelDeleteThread(worker);worker=-1;}if(mutex>=0){sceKernelDeleteMutex(mutex);mutex=-1;}}
+    void requestStop(){quit.store(true);}
+    void stop(){requestStop();if(worker>=0){sceKernelWaitThreadEnd(worker,nullptr,nullptr);sceKernelDeleteThread(worker);worker=-1;}if(mutex>=0){sceKernelDeleteMutex(mutex);mutex=-1;}}
     day::MusicStatus snapshot(){if(mutex<0)return shared;lock();auto value=shared;unlock();return value;}
     void play(int i,const std::string& folder="",const std::vector<std::string>& queue={}){if(mutex<0)return;lock();if(i>=0&&i<int(shared.files.size())){requested=i;requestedPath=shared.files[i];requestedFolder=folder;requestedQueue=queue;folderPending=true;}unlock();}
     void updateQueue(const std::string& folder,const std::vector<std::string>& paths){if(mutex<0)return;lock();updateFolder=folder;updatePaths=paths;unlock();}

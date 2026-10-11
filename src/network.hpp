@@ -3,6 +3,7 @@
 #include "address.hpp"
 #include "air_quality.hpp"
 #include <curl/curl.h>
+#include <atomic>
 #ifdef __vita__
 #include <psp2/kernel/threadmgr.h>
 #else
@@ -11,14 +12,19 @@
 #endif
 
 namespace day {
+inline std::atomic<bool> networkCancelled{false};
+inline int networkProgress(void*,curl_off_t,curl_off_t,curl_off_t,curl_off_t){return networkCancelled.load()?1:0;}
+
 inline size_t receive(char* p,size_t a,size_t b,void* data) {
     auto& s=*static_cast<std::string*>(data);size_t n=a*b;if(n>1024*1024||s.size()+n>1024*1024)return 0;s.append(p,n);return n;
 }
 inline Json request(const std::string& url,const char* ca="app0:assets/cacert.pem") {
+    if(networkCancelled.load())throw std::runtime_error("Request cancelled");
     CURL* c=curl_easy_init();if(!c)throw std::runtime_error("Нет памяти для сети");std::string body;char detail[CURL_ERROR_SIZE]{};curl_easy_setopt(c,CURLOPT_ERRORBUFFER,detail);
     curl_easy_setopt(c,CURLOPT_URL,url.c_str());curl_easy_setopt(c,CURLOPT_WRITEFUNCTION,receive);curl_easy_setopt(c,CURLOPT_WRITEDATA,&body);
     curl_easy_setopt(c,CURLOPT_CAINFO,ca);curl_easy_setopt(c,CURLOPT_SSL_VERIFYPEER,1L);curl_easy_setopt(c,CURLOPT_SSL_VERIFYHOST,2L);
     curl_easy_setopt(c,CURLOPT_CONNECTTIMEOUT,8L);curl_easy_setopt(c,CURLOPT_TIMEOUT,18L);curl_easy_setopt(c,CURLOPT_NOSIGNAL,1L);curl_easy_setopt(c,CURLOPT_USERAGENT,"VitaDay/0.9.6");
+    curl_easy_setopt(c,CURLOPT_NOPROGRESS,0L);curl_easy_setopt(c,CURLOPT_XFERINFOFUNCTION,networkProgress);
     CURLcode r=curl_easy_perform(c);long status=0;curl_easy_getinfo(c,CURLINFO_RESPONSE_CODE,&status);std::string error=detail[0]?detail:curl_easy_strerror(r);curl_easy_cleanup(c);
     if(r!=CURLE_OK)throw std::runtime_error(error);if(status!=200)throw std::runtime_error("HTTP "+std::to_string(status));return Json::parse(body);
 }
